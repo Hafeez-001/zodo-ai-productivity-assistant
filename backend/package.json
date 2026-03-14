@@ -1,0 +1,31 @@
+{
+  "name": "zodo-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "lint": "echo \"no linter configured\"",
+    "smoke:parser": "node -e \"import('./services/taskParser.js').then(m=>{const r=m.parseTaskInput('Prepare report by 5pm detailed');console.log(JSON.stringify(r))})\"",
+    "smoke:workload": "node -e \"import('./services/workloadService.js').then(m=>{const r=m.computeDailyWorkload([{deadline:new Date(),estimatedMinutes:300},{deadline:new Date(),estimatedMinutes:250}]);console.log(JSON.stringify(r))})\""
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "bcryptjs": "^3.0.3",
+    "chrono-node": "^2.9.0",
+    "compromise": "^14.15.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.4.1",
+    "morgan": "^1.10.0",
+    "multer": "^2.1.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.1.4",
+    "nodemon": "^3.0.2"
+  }
+}

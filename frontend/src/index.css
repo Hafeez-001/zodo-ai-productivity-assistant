@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20;
+  }
+
+  .orb {
+    @apply relative w-64 h-64 rounded-full;
+    background: radial-gradient(circle at 30% 30%, #3B82F6, #1D4ED8);
+    box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3), inset 0 0 40px rgba(255, 255, 255, 0.2);
+    animation: breathe 4s ease-in-out infinite;
+  }
+
+  .orb-listening {
+    @apply scale-110 shadow-lg;
+    box-shadow: 0 0 60px rgba(59, 130, 246, 0.6);
+  }
+
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+
+  .card {
+    @apply bg-surface border border-border rounded-xl shadow-card transition-all duration-200;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-hover shadow-sm;
+  }
+
+  .btn-secondary {
+    @apply btn bg-surface border border-border text-text-primary hover:bg-background;
+  }
+
+  .input {
+    @apply w-full px-4 py-2 bg-surface border border-border rounded-lg outline-none transition-all duration-200 focus:border-primary focus:ring-2 focus:ring-primary/10;
+  }
+}
