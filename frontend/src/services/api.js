@@ -1,4 +1,4 @@
-const base = import.meta.env.VITE_API_URL || "https://zodo-backend.onrender.com/api";
+const base = "/api";
 
 function getAuthHeader() {
   const token = localStorage.getItem("zodo_token");
