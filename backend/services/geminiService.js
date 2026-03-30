@@ -155,3 +155,54 @@ export const generateWeeklyReport = async (stats) => {
     return `You completed ${stats.totalCompleted} tasks this week with a ${Math.round(stats.completionRate * 100)}% completion rate. Keep up the great work!`;
   }
 };
+
+/**
+ * Generate comprehensive meeting insights (Summary + Action Items) using Gemini 2.5 Flash
+ */
+export async function generateMeetingInsights(transcript) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `
+You are an AI meeting assistant.
+
+Analyze the following meeting transcript.
+
+Return ONLY valid JSON in this format:
+
+{
+"summary": {
+"keyPoints": [],
+"decisions": []
+},
+"tasks": [
+{
+"title": "",
+"deadline": "",
+"priority": ""
+}
+]
+}
+
+Rules:
+
+* Extract only important discussion points
+* Tasks must be actionable
+* If deadline is mentioned, extract it
+* If not, leave deadline empty
+* Do NOT return text outside JSON
+
+Transcript:
+${transcript}
+`;
+
+    const result = await model.generateContent(prompt);
+    const text = await result.response.text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Failed to parse Gemini response as JSON");
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    console.error("Gemini 2.5 Flash Meeting Insights Error:", error);
+    throw error;
+  }
+}

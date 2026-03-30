@@ -1,6 +1,13 @@
 import Note from '../models/Note.js';
 import Task from '../models/Task.js';
-import { summarizeMeeting, extractTasksFromMeeting } from '../services/geminiService.js';
+import { summarizeMeeting, extractTasksFromMeeting, generateMeetingInsights } from '../services/geminiService.js';
+import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import os from 'os';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const createNote = async (req, res) => {
   try {
@@ -10,18 +17,26 @@ export const createNote = async (req, res) => {
       return res.status(400).json({ error: "Transcript is required" });
     }
 
-    // Generate summary using Gemini
-    const summary = await summarizeMeeting(transcript);
+    // Generate comprehensive insights using Gemini 2.5 Flash
+    const insights = await generateMeetingInsights(transcript);
 
     const note = new Note({
       userId: req.user.id,
       title: title || 'Meeting Notes',
       transcript,
-      summary
+      summary: insights.summary,
+      tasks: insights.tasks
     });
 
     await note.save();
-    res.status(201).json(note);
+    
+    // Return structured payload required by frontend
+    res.status(201).json({
+      _id: note._id, // Add ID for saving successfully
+      transcript,
+      summary: insights.summary,
+      tasks: insights.tasks
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -31,6 +46,16 @@ export const getNotes = async (req, res) => {
   try {
     const notes = await Note.find({ userId: req.user.id }).sort({ createdAt: -1 });
     res.json(notes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getNoteById = async (req, res) => {
+  try {
+    const note = await Note.findOne({ _id: req.params.id, userId: req.user.id });
+    if (!note) return res.status(404).json({ error: "Note not found" });
+    res.json(note);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -73,12 +98,7 @@ export const batchCreateTasksFromMeeting = async (req, res) => {
   }
 };
 
-import { spawn } from 'child_process';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const transcribeAudio = async (req, res) => {
   try {
@@ -88,9 +108,14 @@ export const transcribeAudio = async (req, res) => {
 
     const audioPath = req.file.path;
     const scriptPath = path.join(__dirname, '../scripts/transcribe.py');
+    
+    // Use virtual environment python
+    const pythonExecutable = os.platform() === 'win32' 
+      ? path.join(__dirname, '../venv/Scripts/python.exe')
+      : path.join(__dirname, '../venv/bin/python');
 
     // Spawn Python process
-    const pythonProcess = spawn('python', [scriptPath, audioPath]);
+    const pythonProcess = spawn(pythonExecutable, [scriptPath, audioPath]);
 
     let transcript = '';
     let errorOutput = '';

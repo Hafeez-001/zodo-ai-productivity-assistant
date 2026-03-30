@@ -3,7 +3,7 @@ import { Card, Button } from './ui';
 import { cn } from '../lib/utils';
 import { AlertCircle, CheckCircle2, Clock, Wand2 } from 'lucide-react';
 
-export default function WorkloadMeter({ totalMinutes, capacityPercentage, overloadFlag, onPlanCleanup }) {
+export default function WorkloadMeter({ totalMinutes, capacityPercentage, overloadFlag, onPlanCleanup, markovState, actionPolicy }) {
   const isHigh = capacityPercentage > 80;
   const isModerate = capacityPercentage > 50;
 
@@ -42,12 +42,20 @@ export default function WorkloadMeter({ totalMinutes, capacityPercentage, overlo
 
       <div className="pt-3 flex items-start gap-3 text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-medium bg-gray-50/50 dark:bg-gray-800/50 p-3 rounded-xl border border-gray-100/50 dark:border-gray-700/50">
         <Clock className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
-        {overloadFlag 
-          ? "You've exceeded your optimal cognitive capacity. Consider postponing non-essential tasks."
-          : isHigh 
-            ? "You're approaching your limit. Focus on high-priority items and avoid new commitments."
-            : "Your schedule looks balanced. You have space for deep work or new tasks."
-        }
+        {actionPolicy ? (
+          <div className="flex flex-col gap-1">
+            <span className="font-black text-blue-600 dark:text-blue-400 capitalize">
+              State: {markovState}
+            </span>
+            <span>{actionPolicy.message}</span>
+          </div>
+        ) : (
+          overloadFlag 
+            ? "You've exceeded your optimal cognitive capacity. Consider postponing non-essential tasks."
+            : isHigh 
+              ? "You're approaching your limit. Focus on high-priority items and avoid new commitments."
+              : "Your schedule looks balanced. You have space for deep work or new tasks."
+        )}
       </div>
 
       {/* Interactive AI Cleanup Button — only shown when overloaded */}

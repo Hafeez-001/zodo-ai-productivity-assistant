@@ -209,6 +209,8 @@ export default function Dashboard() {
                 totalMinutes={workload.totalMinutes}
                 capacityPercentage={workload.capacityPercentage}
                 overloadFlag={workload.overloadFlag}
+                markovState={workload.markovState}
+                actionPolicy={workload.actionPolicy}
               />
               
               <Card className="p-8 bg-blue-600 text-white space-y-5 overflow-hidden relative border-none shadow-xl shadow-blue-500/30">

@@ -13,7 +13,8 @@ import {
   predictStateNSteps,
   computeStationaryDistribution,
   calculateEntropy,
-  detectTemporalOverloadTrend
+  detectTemporalOverloadTrend,
+  mdpActionPolicy
 } from "../intelligence/behaviorModel.js";
 import { planCleanup } from "../intelligence/decisionEngine.js";
 
@@ -128,7 +129,8 @@ async function updateBehaviorStateBackground(userId) {
   const tasks = await Task.find({ userId });
   const wl = computeDailyWorkload(tasks);
   const metrics = computeStateMetrics(tasks);
-  const ns = nextState(state.currentState, metrics, wl.overloadFlag);
+  const pendingTaskCount = tasks.filter(t => t.status !== "completed").length;
+  const ns = nextState(state.currentState, metrics, wl.overloadFlag, pendingTaskCount);
   
   if (ns !== state.currentState) {
     const fromState = state.currentState;
@@ -229,7 +231,16 @@ export async function getWorkload(req, res, next) {
     const userId = req.user.id;
     const tasks = await Task.find({ userId, status: { $ne: "completed" }, archived: { $ne: true } });
     const metrics = computeDailyWorkload(tasks);
-    res.json(metrics);
+    
+    // Inject Markov state and action policy for the Workload meter
+    const state = await BehaviorState.findOne({ userId });
+    const policy = state ? mdpActionPolicy(state.currentState) : null;
+    
+    res.json({ 
+      ...metrics, 
+      markovState: state?.currentState, 
+      actionPolicy: policy 
+    });
   } catch (e) {
     next(e);
   }

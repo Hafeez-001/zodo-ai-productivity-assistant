@@ -20,11 +20,11 @@ export function computeStateMetrics(tasks) {
   return { postponementRate, completionRate };
 }
 
-export function nextState(current, metrics, overloadFlag) {
+export function nextState(current, metrics, overloadFlag, pendingTaskCount = 0) {
   if (overloadFlag) return "Overloaded";
   if (metrics.postponementRate > 0.4 && metrics.completionRate < 0.4) return "Procrastinating";
-  if (metrics.completionRate > 0.8) return "HighPerformance";
-  if (metrics.completionRate < 0.2) return "Underutilized";
+  if (metrics.completionRate > 0.8 && metrics.completionRate <= 1.0 && pendingTaskCount > 0) return "HighPerformance";
+  if (metrics.completionRate < 0.2 && pendingTaskCount < 2) return "Underutilized";
   return "Balanced";
 }
 

@@ -94,6 +94,10 @@ export async function getNotes() {
   return request("/notes");
 }
 
+export async function getNoteById(id) {
+  return request(`/notes/${id}`);
+}
+
 export async function removeNote(id) {
   return request(`/notes/${id}`, { method: "DELETE" });
 }
