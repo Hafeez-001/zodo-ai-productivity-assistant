@@ -8,7 +8,9 @@ import {
   Zap,
   Tag,
   AlertTriangle,
-  Info
+  Info,
+  CalendarClock,
+  AlignLeft
 } from "lucide-react";
 import { Card, Button, Input } from "./ui";
 import { cn } from "../lib/utils";
@@ -203,6 +205,19 @@ export default function TaskCard({ task, onUpdate, onDelete, selected, onSelect 
                 <> • {new Date(task.deadline).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}</>
               ) : null}
             </span>
+          </div>
+        )}
+
+        {/* Task type badge */}
+        {task.type === "FIXED" ? (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-900">
+            <CalendarClock className="w-3 h-3" />
+            Event (Fixed)
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-black uppercase tracking-wider bg-gray-50 text-gray-500 border-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700">
+            <AlignLeft className="w-3 h-3" />
+            Task (Flexible)
           </div>
         )}
 

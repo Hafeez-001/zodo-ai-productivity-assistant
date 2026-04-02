@@ -61,10 +61,16 @@ export default function Notes() {
   const handleConfirmTask = async (index) => {
     if (!activeNote || !activeNote.tasks) return;
     const task = activeNote.tasks[index];
-    if (task.status !== 'pending') return;
+    if (task.status === 'added' || task.status === 'ignored') return;
     try {
-      const rawInput = `${task.title} ${task.deadline}`.trim();
-      await createTask({ rawInput });
+      const rawInput = `${task.title} ${task.deadline || ''}`.trim();
+      await createTask({ 
+        rawInput,
+        title: task.title,
+        deadline: task.deadline,
+        type: task.type || undefined,
+        forceCreate: true
+      });
       
       setActiveNote(prev => {
         const newTasks = [...prev.tasks];
@@ -73,7 +79,17 @@ export default function Notes() {
       });
       showToast("Task created!", "success");
     } catch (err) {
-      showToast("Failed to create task", "error");
+      // Show specific message for fixed-event time conflicts
+      const isConflict = err.message && (
+        err.message.includes("scheduled event at this time") ||
+        err.message.includes("already have")
+      );
+      showToast(
+        isConflict
+          ? "You already have a meeting or event at this time."
+          : "Failed to create task",
+        "error"
+      );
     }
   };
 
@@ -144,136 +160,138 @@ export default function Notes() {
           {loading || !activeNote ? (
             <p className="text-center py-12 text-gray-400">Loading details...</p>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Transcript Column */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-gray-900 dark:text-gray-100">
-                  <FileText className="w-5 h-5 text-gray-400" />
-                  <h3 className="font-bold">Transcript</h3>
-                </div>
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 min-h-[300px] max-h-[600px] overflow-y-auto">
-                  <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                    {activeNote.transcript}
-                  </p>
-                </div>
-              </div>
-
-              {/* Summary and Tasks Column */}
-              <div className="space-y-6">
-                <div className="bg-blue-600 rounded-3xl p-8 text-white shadow-xl shadow-blue-600/20 relative overflow-hidden">
-                  <Sparkles className="absolute top-4 right-4 text-blue-400 w-12 h-12 opacity-20" />
-                  <h3 className="text-xl font-bold mb-6">AI Meeting Insight</h3>
-                  <div className="space-y-6">
-                    <div>
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-100 mb-3 opacity-70">Key Points</h4>
-                      <ul className="space-y-3">
-                        {activeNote.summary?.keyPoints?.map((p, i) => (
-                          <li key={i} className="flex gap-3 text-sm font-medium">
-                            <span className="w-1.5 h-1.5 bg-blue-300 rounded-full mt-1.5 shrink-0" />
-                            {p}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="pt-6 border-t border-white/10">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-100 mb-3 opacity-70">Decisions</h4>
-                      <ul className="space-y-3">
-                        {activeNote.summary?.decisions?.map((d, i) => (
-                          <li key={i} className="flex gap-3 text-sm font-bold">
-                            <CheckCircle2 className="w-4 h-4 text-green-300 shrink-0" />
-                            {d}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Transcript Column */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-gray-900 dark:text-gray-100">
+                    <FileText className="w-5 h-5 text-gray-400" />
+                    <h3 className="font-bold">Transcript</h3>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 min-h-[300px] max-h-[600px] overflow-y-auto">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                      {activeNote.transcript}
+                    </p>
                   </div>
                 </div>
 
-                {/* Tasks Section */}
-                {activeNote.tasks && activeNote.tasks.length > 0 && (
-                  <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 border border-gray-100 dark:border-gray-800 shadow-lg space-y-6">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-500">Action Items</h4>
-                      <span className="text-[10px] text-blue-500 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/30 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900">
-                        Review & Confirm
-                      </span>
+                {/* Summary Column */}
+                <div className="space-y-6">
+                  <div className="bg-blue-600 rounded-3xl p-8 text-white shadow-xl shadow-blue-600/20 relative overflow-hidden h-full">
+                    <Sparkles className="absolute top-4 right-4 text-blue-400 w-12 h-12 opacity-20" />
+                    <h3 className="text-xl font-bold mb-6">AI Meeting Insight</h3>
+                    <div className="space-y-6">
+                      <div>
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-100 mb-3 opacity-70">Key Points</h4>
+                        <ul className="space-y-3">
+                          {activeNote.summary?.keyPoints?.map((p, i) => (
+                            <li key={i} className="flex gap-3 text-sm font-medium">
+                              <span className="w-1.5 h-1.5 bg-blue-300 rounded-full mt-1.5 shrink-0" />
+                              {p}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="pt-6 border-t border-white/10">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-100 mb-3 opacity-70">Decisions</h4>
+                        <ul className="space-y-3">
+                          {activeNote.summary?.decisions?.map((d, i) => (
+                            <li key={i} className="flex gap-3 text-sm font-bold">
+                              <CheckCircle2 className="w-4 h-4 text-green-300 shrink-0" />
+                              {d}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
-                    <ul className="space-y-4">
-                      {activeNote.tasks.map((task, i) => {
-                        const isAdded = task.status === 'added';
-                        const isIgnored = task.status === 'ignored';
-                        const isEditing = editingTaskIndex === i;
+                  </div>
+                </div>
+              </div>
 
-                        if (isIgnored) return null;
+              {/* Tasks Section */}
+              {activeNote.tasks && activeNote.tasks.length > 0 && (
+                <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 border border-gray-100 dark:border-gray-800 shadow-lg space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-500">Action Items</h4>
+                    <span className="text-[10px] text-blue-500 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/30 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900">
+                      Review & Confirm
+                    </span>
+                  </div>
+                  <ul className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {activeNote.tasks.map((task, i) => {
+                      const isAdded = task.status === 'added';
+                      const isIgnored = task.status === 'ignored';
+                      const isEditing = editingTaskIndex === i;
 
-                        return (
-                          <li key={i} className={cn(
-                            "flex flex-col gap-3 p-4 rounded-xl border transition-all",
-                            isAdded ? "bg-green-50 dark:bg-green-950/20 border-green-100 dark:border-green-900" : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-blue-300"
-                          )}>
-                            {isEditing ? (
-                              <div className="flex flex-col gap-3">
-                                <input 
-                                  value={editTitle}
-                                  onChange={e => setEditTitle(e.target.value)}
-                                  className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 dark:text-white"
-                                  placeholder="Task Title"
-                                />
-                                <input 
-                                  value={editDeadline}
-                                  onChange={e => setEditDeadline(e.target.value)}
-                                  className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 dark:text-white"
-                                  placeholder="Deadline (e.g., Tomorrow at 5pm)"
-                                />
-                                <div className="flex gap-2 justify-end mt-1">
-                                  <button onClick={() => setEditingTaskIndex(null)} className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-gray-700">Cancel</button>
-                                  <button onClick={() => handleSaveEdit(i)} className="px-3 py-1.5 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+                      if (isIgnored) return null;
+
+                      return (
+                        <li key={i} className={cn(
+                          "flex flex-col gap-3 p-4 rounded-xl border transition-all",
+                          isAdded ? "bg-green-50 dark:bg-green-950/20 border-green-100 dark:border-green-900" : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-blue-300"
+                        )}>
+                          {isEditing ? (
+                            <div className="flex flex-col gap-3">
+                              <input 
+                                value={editTitle}
+                                onChange={e => setEditTitle(e.target.value)}
+                                className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 dark:text-white"
+                                placeholder="Task Title"
+                              />
+                              <input 
+                                value={editDeadline}
+                                onChange={e => setEditDeadline(e.target.value)}
+                                className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 dark:text-white"
+                                placeholder="Deadline (e.g., Tomorrow at 5pm)"
+                              />
+                              <div className="flex gap-2 justify-end mt-1">
+                                <button onClick={() => setEditingTaskIndex(null)} className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-gray-700">Cancel</button>
+                                <button onClick={() => handleSaveEdit(i)} className="px-3 py-1.5 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex gap-3">
+                                  <div className={cn(
+                                    "w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border mt-0.5",
+                                    isAdded ? "bg-green-500 border-green-500" : "bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600"
+                                  )}>
+                                    {isAdded ? <Check className="w-3 h-3 text-white" /> : <span className="text-xs font-bold text-gray-400 dark:text-gray-500">{i + 1}</span>}
+                                  </div>
+                                  <div>
+                                    <p className={cn("text-sm font-bold", isAdded ? "text-green-800 dark:text-green-300" : "text-gray-800 dark:text-gray-200")}>
+                                      {task.title}
+                                    </p>
+                                    <div className="flex items-center gap-3 mt-1 text-xs font-medium text-gray-500">
+                                      {task.deadline && <span className="text-orange-600 dark:text-orange-400 whitespace-nowrap">Due: {task.deadline}</span>}
+                                      {task.priority && <span className="text-blue-600 dark:text-blue-400 capitalize">{task.priority} Priority</span>}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                            ) : (
-                              <>
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="flex gap-3">
-                                    <div className={cn(
-                                      "w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border mt-0.5",
-                                      isAdded ? "bg-green-500 border-green-500" : "bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600"
-                                    )}>
-                                      {isAdded ? <Check className="w-3 h-3 text-white" /> : <span className="text-xs font-bold text-gray-400 dark:text-gray-500">{i + 1}</span>}
-                                    </div>
-                                    <div>
-                                      <p className={cn("text-sm font-bold", isAdded ? "text-green-800 dark:text-green-300" : "text-gray-800 dark:text-gray-200")}>
-                                        {task.title}
-                                      </p>
-                                      <div className="flex items-center gap-3 mt-1 text-xs font-medium text-gray-500">
-                                        {task.deadline && <span className="text-orange-600 dark:text-orange-400 whitespace-nowrap">Due: {task.deadline}</span>}
-                                        {task.priority && <span className="text-blue-600 dark:text-blue-400 capitalize">{task.priority} Priority</span>}
-                                      </div>
-                                    </div>
-                                  </div>
+                              
+                              {!isAdded && (
+                                <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700 mt-1">
+                                  <button onClick={() => handleConfirmTask(i)} className="flex items-center justify-center gap-1.5 flex-1 bg-green-100 hover:bg-green-200 text-green-700 dark:bg-green-900/40 dark:hover:bg-green-900/60 dark:text-green-400 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                                    <Check className="w-3.5 h-3.5" /> Add Task
+                                  </button>
+                                  <button onClick={() => handleStartEdit(i)} className="flex items-center justify-center gap-1.5 flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                                    <Edit2 className="w-3 h-3" /> Edit
+                                  </button>
+                                  <button onClick={() => handleIgnoreTask(i)} className="flex items-center justify-center gap-1.5 flex-1 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:hover:bg-red-900/60 dark:text-red-400 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                                    <X className="w-3.5 h-3.5" /> Ignore
+                                  </button>
                                 </div>
-                                
-                                {!isAdded && (
-                                  <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700 mt-1">
-                                    <button onClick={() => handleConfirmTask(i)} className="flex items-center justify-center gap-1.5 flex-1 bg-green-100 hover:bg-green-200 text-green-700 dark:bg-green-900/40 dark:hover:bg-green-900/60 dark:text-green-400 py-1.5 rounded-lg text-xs font-bold transition-colors">
-                                      <Check className="w-3.5 h-3.5" /> Add Task
-                                    </button>
-                                    <button onClick={() => handleStartEdit(i)} className="flex items-center justify-center gap-1.5 flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 py-1.5 rounded-lg text-xs font-bold transition-colors">
-                                      <Edit2 className="w-3 h-3" /> Edit
-                                    </button>
-                                    <button onClick={() => handleIgnoreTask(i)} className="flex items-center justify-center gap-1.5 flex-1 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:hover:bg-red-900/60 dark:text-red-400 py-1.5 rounded-lg text-xs font-bold transition-colors">
-                                      <X className="w-3.5 h-3.5" /> Ignore
-                                    </button>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </div>
+                              )}
+                            </>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const EFFORT_LEVELS = ["low", "medium", "high"];
 const TASK_STATUSES = ["pending", "in_progress", "completed", "postponed"];
+const TASK_TYPES = ["FLEXIBLE", "FIXED"];
 
 const VALID_TAGS = ["#Work", "#Personal", "#Coding", "#Study", "#Health", "#Finance", "#Other"];
 
@@ -71,7 +72,15 @@ const TaskSchema = new mongoose.Schema(
     postponedCount: { type: Number, default: 0, min: 0 },
     effortCorrection: { type: Number, default: 1.0, min: 0.1, max: 5.0 },
     archived: { type: Boolean, default: false },
-    priorityRationale: { type: String, default: "" }
+    priorityRationale: { type: String, default: "" },
+    type: {
+      type: String,
+      enum: {
+        values: TASK_TYPES,
+        message: "{VALUE} is not a valid task type"
+      },
+      default: "FLEXIBLE"
+    }
   },
   {
     timestamps: true
@@ -83,6 +92,9 @@ TaskSchema.index({ userId: 1, deadline: 1 });
 TaskSchema.index({ userId: 1, status: 1 });
 TaskSchema.index({ userId: 1, tags: 1 });
 TaskSchema.index({ userId: 1, archived: 1 });
+// Index for fast fixed-event conflict detection
+TaskSchema.index({ userId: 1, deadline: 1, type: 1 });
 
 export const VALID_TASK_TAGS = VALID_TAGS;
+export const TASK_TYPES_ENUM = TASK_TYPES;
 export default mongoose.model("Task", TaskSchema);

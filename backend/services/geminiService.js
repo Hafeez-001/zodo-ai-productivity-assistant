@@ -179,7 +179,8 @@ Return ONLY valid JSON in this format:
 {
 "title": "",
 "deadline": "",
-"priority": ""
+"priority": "",
+"type": ""
 }
 ]
 }
@@ -190,6 +191,7 @@ Rules:
 * Tasks must be actionable
 * If deadline is mentioned, extract it
 * If not, leave deadline empty
+* For "type": classify as "FIXED" if the task is a time-bound event (meeting, exam, interview, call, session, or has "at <time>"); otherwise classify as "FLEXIBLE"
 * Do NOT return text outside JSON
 
 Transcript:

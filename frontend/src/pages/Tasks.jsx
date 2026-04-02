@@ -3,8 +3,8 @@ import { getTasks, patchTask, removeTask, getWorkload, planCleanup as apiPlanCle
 import TaskCard from "../components/TaskCard.jsx";
 import WorkloadMeter from "../components/WorkloadMeter.jsx";
 import PlanCleanupModal from "../components/PlanCleanupModal.jsx";
-import { Card, Button, Input, Modal } from "../components/ui";
-import { Search, Filter, Plus, ListTodo, LayoutGrid, LayoutList, Tag, Archive } from "lucide-react";
+import { Card, Button, Input } from "../components/ui";
+import { Search, Filter, ListTodo, LayoutGrid, LayoutList, Tag, Archive } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useToast } from "../context/ToastContext";
 
@@ -19,9 +19,7 @@ export default function Tasks() {
   const [activeTag, setActiveTag] = useState("All");
   const [sortMode, setSortMode] = useState("default");
   const [viewMode, setViewMode] = useState("list");
-  const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   // Plan Cleanup modal state
   const [cleanupOpen, setCleanupOpen] = useState(false);
@@ -125,9 +123,6 @@ export default function Tasks() {
             title="Archive completed tasks older than 7 days"
           >
             <Archive className="w-4 h-4" /> Archive
-          </Button>
-          <Button className="gap-2 shadow-md" onClick={() => setShowAddModal(true)}>
-            <Plus className="w-4 h-4" /> New Task
           </Button>
         </div>
       </div>
@@ -258,43 +253,6 @@ export default function Tasks() {
           </Card>
         </div>
       </div>
-
-      {/* New Task Modal */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Create New Task" subtitle="Capture a thought naturally.">
-        <div className="space-y-4">
-          <Input 
-            id="modal-task-input"
-            className={cn(error && "border-red-500 focus:ring-red-500/10")}
-            placeholder="e.g. Finish the design presentation by 4pm" 
-            autoFocus
-            onChange={() => { if (error) setError(null); }}
-            onKeyDown={async (e) => {
-              if (e.key === 'Enter' && e.target.value.trim()) {
-                setLoading(true);
-                setError(null);
-                try {
-                  const { createTask } = await import("../services/api.js");
-                  await createTask({ rawInput: e.target.value.trim() });
-                  refresh();
-                  setShowAddModal(false);
-                } catch (error) {
-                  if (error.message) setError(error.message);
-                  else setError("An unexpected error occurred.");
-                } finally { setLoading(false); }
-              }
-            }}
-          />
-          {error && <p className="text-xs font-bold text-red-500 text-center">{error}</p>}
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">Press Enter to Create</p>
-        </div>
-        <div className="flex gap-3 pt-2 border-t border-gray-100 dark:border-gray-800 mt-6">
-          <Button variant="secondary" className="flex-1" onClick={() => setShowAddModal(false)}>Cancel</Button>
-          <Button className="flex-1" onClick={() => {
-            const input = document.getElementById('modal-task-input');
-            if (input?.value) input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-          }}>Create Task</Button>
-        </div>
-      </Modal>
 
       {/* Plan Cleanup Modal */}
       <PlanCleanupModal

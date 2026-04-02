@@ -3,7 +3,7 @@ import BehaviorState from "../models/BehaviorState.js";
 import { parseTaskInput } from "../services/taskParser.js";
 import { computeDailyWorkload } from "../services/workloadService.js";
 import { calculatePriority } from "../services/priorityService.js";
-import { processText } from "../services/nlpService.js";
+import { processText, classifyTaskType } from "../services/nlpService.js";
 import { validateTask } from "../services/taskValidator.js";
 import { 
   computeStateMetrics, 
@@ -18,6 +18,38 @@ import {
 } from "../intelligence/behaviorModel.js";
 import { planCleanup } from "../intelligence/decisionEngine.js";
 
+/**
+ * Checks for scheduling conflicts for FIXED events.
+ * Blocks if another FIXED event exists within ±30 minutes of the proposed time
+ * for the same user. FLEXIBLE tasks are never blocked.
+ *
+ * @param {string} userId
+ * @param {Date|string} deadline - The proposed deadline datetime
+ * @param {string|null} excludeTaskId - Task ID to exclude (for updates)
+ * @returns {boolean} true if a conflict exists
+ */
+async function hasFixedEventConflict(userId, deadline, excludeTaskId = null) {
+  if (!deadline) return false;
+
+  const dt = new Date(deadline);
+  // ±30 minutes window around the proposed time
+  const windowStart = new Date(dt.getTime() - 30 * 60 * 1000);
+  const windowEnd   = new Date(dt.getTime() + 30 * 60 * 1000);
+
+  const query = {
+    userId,
+    type: "FIXED",
+    deadline: { $gte: windowStart, $lte: windowEnd }
+  };
+
+  if (excludeTaskId) {
+    query._id = { $ne: excludeTaskId };
+  }
+
+  const conflict = await Task.findOne(query);
+  return !!conflict;
+}
+
 export async function createTask(req, res, next) {
   try {
     const userId = req.user.id;
@@ -29,7 +61,7 @@ export async function createTask(req, res, next) {
 
     // 2. Validate the extracted data
     const validation = validateTask(processedData);
-    if (!validation.valid) {
+    if (!validation.valid && !req.body.forceCreate) {
       return res.status(400).json({
         valid: false,
         intent: processedData.intent,
@@ -38,8 +70,29 @@ export async function createTask(req, res, next) {
       });
     }
 
-    const title = parsedData.title || processedData.task;
-    const finalDeadline = parsedData.deadline || processedData.deadline;
+    const title = req.body.title || parsedData.title || processedData.task || rawInput;
+    
+    let finalDeadline = req.body.deadline || parsedData.deadline || processedData.deadline;
+    if (req.body.forceCreate && !finalDeadline) {
+      // If forcing creation from UI without a specific deadline, default to 24 hours from now
+      finalDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    }
+
+    // Determine task type: ALWAYS re-derive from NLP regardless of what AI/client sent.
+    // The text used for classification is rawInput first, then title as fallback.
+    // req.body.type is intentionally ignored — NLP is the single source of truth.
+    const classificationText = rawInput || title || "";
+    const taskType = classifyTaskType(classificationText);
+
+    // 3a. For FIXED events, check for scheduling conflicts (±30 min window)
+    if (taskType === "FIXED" && finalDeadline) {
+      const conflict = await hasFixedEventConflict(userId, finalDeadline);
+      if (conflict) {
+        return res.status(409).json({
+          message: "You already have a scheduled event at this time."
+        });
+      }
+    }
 
     // 3. Load effortCorrection from behavior model for personalized estimation
     const behaviorState = await BehaviorState.findOne({ userId });
@@ -56,6 +109,7 @@ export async function createTask(req, res, next) {
       estimatedMinutes: parsedData.estimatedMinutes || req.body.estimatedMinutes || 30,
       effortCorrection,
       tags: Array.isArray(tags) ? tags : [],
+      type: taskType,
       parsedMetadata: {
         ...parsedData.parsedMetadata,
         intent: processedData.intent,
@@ -189,6 +243,25 @@ export async function updateTask(req, res, next) {
     // Track postponements
     if (updates.status === "postponed" && existingTask.status !== "postponed") {
       updates.postponedCount = (existingTask.postponedCount || 0) + 1;
+    }
+
+    // Determine effective type after update.
+    // Always re-derive via NLP from the task title — never trust client-supplied type.
+    const classificationTextForUpdate = (updates.title || existingTask.title || existingTask.rawInput || "");
+    const effectiveType = classifyTaskType(classificationTextForUpdate);
+    // Persist the re-derived type in updates so it's correctly stored
+    updates.type = effectiveType;
+
+    const effectiveDeadline = updates.deadline || existingTask.deadline;
+
+    // For FIXED event updates, check for conflicts with OTHER tasks (±30 min window)
+    if (effectiveType === "FIXED" && effectiveDeadline) {
+      const conflict = await hasFixedEventConflict(userId, effectiveDeadline, id);
+      if (conflict) {
+        return res.status(409).json({
+          message: "You already have a scheduled event at this time."
+        });
+      }
     }
 
     const simulatedTask = { ...existingTask.toObject(), ...updates };

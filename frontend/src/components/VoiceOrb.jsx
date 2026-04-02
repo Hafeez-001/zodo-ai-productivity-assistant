@@ -1,77 +1,64 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Mic, Loader2 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { transcribeAudio } from "../services/api";
 
 export default function VoiceOrb({ onTranscript }) {
   const [listening, setListening] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [supported, setSupported] = useState(true);
-  
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
       setSupported(false);
+      return;
     }
-  }, []);
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
+    recognition.onstart = () => {
+      setListening(true);
+    };
 
-      mediaRecorder.onstart = () => setListening(true);
-      
-      mediaRecorder.onstop = async () => {
-        setListening(false);
-        setProcessing(true);
-        const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
-        stream.getTracks().forEach(track => track.stop()); // Stop microphone access
-        
-        try {
-          const result = await transcribeAudio(audioBlob);
-          if (result.transcript) {
-            onTranscript(result.transcript);
-          }
-        } catch (error) {
-          console.error("Transcription error:", error);
-        } finally {
-          setProcessing(false);
-        }
-      };
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      onTranscript(transcript);
+      setProcessing(true);
+      // Simulate processing time for UI feedback
+      setTimeout(() => setProcessing(false), 800);
+    };
 
-      mediaRecorder.start();
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-      setSupported(false); // Can't access mic
-    }
-  };
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+      setListening(false);
+    };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
-  };
+    recognition.onend = () => {
+      setListening(false);
+    };
+
+    recognitionRef.current = recognition;
+  }, [onTranscript]);
 
   const toggleListening = () => {
-    if (!supported) {
+    if (!supported || !recognitionRef.current) {
       console.warn("Audio recording is not supported or permission denied.");
       return;
     }
     if (processing) return; // Prevent toggling while processing
 
     if (listening) {
-      stopRecording();
+      recognitionRef.current.stop();
     } else {
-      startRecording();
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        console.error("Failed to start speech recognition", e);
+      }
     }
   };
 

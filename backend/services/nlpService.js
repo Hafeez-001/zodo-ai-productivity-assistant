@@ -96,6 +96,39 @@ function extractDeadline(text) {
 }
 
 /**
+ * Classifies a task as FIXED (time-bound event) or FLEXIBLE (deadline-based).
+ *
+ * FIXED if:
+ *   1. Contains event keywords: meeting, exam, interview, call, session
+ *      → ALWAYS FIXED, even if no time is specified (keyword takes priority)
+ *   2. OR matches "at <clock-time>" pattern (digit required immediately after "at")
+ *      → e.g. "at 10pm", "at 5:30", "at 9:00 AM"
+ *      → phrases like "at home", "at work" do NOT match
+ *
+ * FLEXIBLE otherwise.
+ *
+ * @param {string} text - The raw user input.
+ * @returns {'FIXED'|'FLEXIBLE'}
+ */
+export function classifyTaskType(text) {
+  if (!text) return 'FLEXIBLE';
+  const lower = text.toLowerCase();
+
+  // Rule 1: keyword-based FIXED — always wins, no time needed
+  const fixedKeywords = ['meeting', 'exam', 'interview', 'call', 'session'];
+  if (fixedKeywords.some(kw => lower.includes(kw))) return 'FIXED';
+
+  // Rule 2: "at <clock-time>" — must be followed by a digit (not words like "home")
+  // Matches: "at 10pm", "at 5:30", "at 9:00 AM", "at 11"
+  // Does NOT match: "at home", "at work", "at the office"
+  const atTimePattern = /\bat\s+\d{1,2}(:\d{2})?\s?(am|pm)?\b/i;
+  if (atTimePattern.test(text)) return 'FIXED';
+
+  return 'FLEXIBLE';
+}
+
+
+/**
  * Processes the raw text to extract structured task information.
  * 
  * @param {string} rawInput - The full sentence from the user.
@@ -109,6 +142,7 @@ export function processText(rawInput) {
   const intent = detectIntent(rawInput);
   const deadlineResult = extractDeadline(rawInput);
   const task = extractTask(rawInput, deadlineResult);
+  const taskType = classifyTaskType(rawInput);
   
   const deadline = deadlineResult ? deadlineResult.start.date() : null;
   const deadlineText = deadlineResult ? deadlineResult.text : null;
@@ -118,6 +152,7 @@ export function processText(rawInput) {
     task: task,
     deadline: deadline,
     deadlineText: deadlineText,
+    taskType,
     valid: intent === 'create_task' && !!task && !!deadline,
     original: rawInput
   };

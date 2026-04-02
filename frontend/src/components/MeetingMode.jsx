@@ -101,11 +101,16 @@ export default function MeetingMode({ onSaveSuccess }) {
 
   const handleConfirmTask = async (index) => {
     const task = tasks[index];
-    if (task.status !== 'pending') return;
+    if (task.status === 'added' || task.status === 'ignored') return;
     try {
       // Add both title and deadline for the NLP parser
-      const rawInput = `${task.title} ${task.deadline}`.trim();
-      await createTask({ rawInput });
+      const rawInput = `${task.title} ${task.deadline || ''}`.trim();
+      await createTask({ 
+        rawInput,
+        title: task.title,
+        deadline: task.deadline,
+        forceCreate: true 
+      });
       setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'added' } : t));
       showToast("Task confirmed and created!", "success");
     } catch (err) {
@@ -237,7 +242,7 @@ export default function MeetingMode({ onSaveSuccess }) {
                 animate={{ opacity: 1, scale: 1 }}
                 className="space-y-6"
               >
-                <div className="bg-blue-600 rounded-3xl p-8 text-white shadow-xl shadow-blue-600/20 relative overflow-hidden">
+                <div className="bg-blue-600 rounded-3xl p-8 text-white shadow-xl shadow-blue-600/20 relative overflow-hidden h-full">
                   <Sparkles className="absolute top-4 right-4 text-blue-400 w-12 h-12 opacity-20" />
                   <h3 className="text-xl font-bold mb-6">AI Meeting Insight</h3>
 
@@ -267,6 +272,20 @@ export default function MeetingMode({ onSaveSuccess }) {
                     </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
+
+      {/* Action Items Full Width Section */}
+      <AnimatePresence>
+        {summary && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full grid grid-cols-1 gap-8"
+          >
 
                 {/* Action Items — Tasks Review Flow */}
                 <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 border border-gray-100 dark:border-gray-800 shadow-lg space-y-6">
@@ -277,7 +296,7 @@ export default function MeetingMode({ onSaveSuccess }) {
                     </span>
                   </div>
                   
-                  <ul className="space-y-4">
+                  <ul className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {tasks.map((task, i) => {
                       const isAdded = task.status === 'added';
                       const isIgnored = task.status === 'ignored';
@@ -351,20 +370,18 @@ export default function MeetingMode({ onSaveSuccess }) {
                     })}
                   </ul>
 
-                  <div className="pt-6 border-t border-gray-100 dark:border-gray-800 flex gap-4">
+                  <div className="pt-6 border-t border-gray-100 dark:border-gray-800 flex justify-center mt-8">
                     <button
                       onClick={() => onSaveSuccess()}
-                      className="flex-1 flex items-center justify-center gap-2 py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all active:scale-95 shadow-lg shadow-blue-500/20 cursor-pointer"
+                      className="w-full max-w-md flex items-center justify-center gap-2 py-4 px-8 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl transition-all active:scale-95 shadow-xl shadow-blue-500/20 text-lg"
                     >
-                      <Save className="w-4 h-4" /> Save Meeting Notes
+                      <Save className="w-5 h-5" /> Save Meeting Notes
                     </button>
                   </div>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
-        </motion.div>
-      )}
     </div>
   );
 }
