@@ -1,11 +1,22 @@
 /**
  * Priority Scoring Service — Cognitive Decision Model
- * 
+ *
  * Implements a layered cognitive decision framework:
  * 1. Hard-rule overrides (force Critical/High in extreme cases)
  * 2. Parametric scoring (deadline, effort, workload)
  * 3. Behavioral adjustments (postponement penalty, effort correction)
  * 4. Rationale synthesis (human-readable explanation)
+ *
+ * FIXES APPLIED:
+ * - Issue #2: Rule 2 (postpone+deadline) replaced with a rule that actually triggers.
+ *             Old rule required label to still be "Medium" at execution time, which
+ *             almost never happened because the score was already too high.
+ *             New rule: any task postponed 2+ times that scored Low → floor to Medium.
+ * - Issue #3: correctedMinutes is now returned AND the caller (taskController) stores
+ *             it as estimatedMinutes when the correction multiplier is not 1.0.
+ * - Issue #Score Inflation: Effort score reduced from max 30 to max 20.
+ *             A task with no deadline and high effort was scoring 5+30+5=40 → Medium.
+ *             Now: 5+20+5=30 → Low. Effort alone can never push a task to High/Critical.
  */
 
 /**
@@ -24,7 +35,7 @@ function buildRationale(deadlineDays, effortLevel, workloadFlag, postponedCount,
   else if (effortLevel === "low") parts.push("low effort");
 
   if (workloadFlag) parts.push("schedule is overloaded");
-  if (postponedCount >= 3) parts.push(`postponed ${postponedCount} times`);
+  if (postponedCount >= 2) parts.push(`postponed ${postponedCount} times`);
 
   if (parts.length === 0) return `Assigned ${label} based on default scoring.`;
   return `${label}: ${parts.join(", ")}.`;
@@ -34,9 +45,10 @@ export function calculatePriority(task, workload) {
   const effort = String(task.effortLevel || "medium").toLowerCase();
   const postponedCount = task.postponedCount || 0;
 
-  // Apply behaviorally-learned effort correction to estimated minutes
+  // Apply behaviorally-learned effort correction to estimated minutes.
+  // correctedMinutes is returned so the caller CAN store it if desired.
   const effortCorrection = task.effortCorrection || 1.0;
-  const correctedMinutes = (task.estimatedMinutes || 30) * effortCorrection;
+  const correctedMinutes = Math.round((task.estimatedMinutes || 30) * effortCorrection);
 
   // --- 1. Deadline Score (0–50) ---
   let deadlineScore = 5;
@@ -56,16 +68,21 @@ export function calculatePriority(task, workload) {
     else deadlineScore = 10;                          // 7+ days
   }
 
-  // --- 2. Effort Score (0–30) ---
-  let effortScore = 20;
-  if (effort === "high") effortScore = 30;
-  else if (effort === "low") effortScore = 10;
+  // --- 2. Effort Score (0–20) ---
+  // FIX (Score Inflation): Reduced max from 30 to 20.
+  // With max 30, a no-deadline high-effort task scored 5+30+5=40 → Medium.
+  // Effort alone should never elevate a no-deadline task above Low.
+  // Now: 5+20+5=30 → Low. Effort properly acts as a tiebreaker, not a driver.
+  let effortScore = 15;
+  if (effort === "high") effortScore = 20;
+  else if (effort === "low") effortScore = 5;
 
-  // --- 3. Workload Score (0–20) ---
+  // --- 3. Workload Score (0–15) ---
+  // FIX (Score Inflation): Reduced max from 20 to 15 proportionally.
   let workloadScore = 5;
-  if (workload.overloadFlag) workloadScore = 20;
-  else if (workload.capacityPercentage > 80) workloadScore = 15;
-  else if (workload.capacityPercentage >= 50) workloadScore = 10;
+  if (workload.overloadFlag) workloadScore = 15;
+  else if (workload.capacityPercentage > 80) workloadScore = 12;
+  else if (workload.capacityPercentage >= 50) workloadScore = 8;
 
   // --- 4. Behavioral Penalty: repeated postponement ---
   let postponePenalty = 0;
@@ -83,17 +100,24 @@ export function calculatePriority(task, workload) {
   else priorityLabel = "Low";
 
   // --- 6. Cognitive Hard-Rule Overrides ---
-  // Rule: deadline <= 1 day AND effort = high → always Critical
+
+  // Rule A: deadline <= 1 day AND effort = high → always Critical
   if (deadlineDays !== null && deadlineDays <= 1 && effort === "high") {
     priorityLabel = "Critical";
     priorityScore = Math.max(priorityScore, 85);
   }
-  // Rule: task postponed 3+ times with near deadline → bump to High minimum
-  if (postponedCount >= 3 && deadlineDays !== null && deadlineDays <= 3 && priorityLabel === "Medium") {
-    priorityLabel = "High";
-    priorityScore = Math.max(priorityScore, 65);
+
+  // Rule B (FIX Issue #2): Replaced dead Rule 2 with a rule that actually triggers.
+  // Old: required label == "Medium" after postpone+deadline already drove score high.
+  // New: any task postponed 2+ times that landed at Low → floor it to Medium.
+  //      This is reachable: no deadline (5) + low effort (5) + low workload (5) + postpone>=2 (5)
+  //      → score=20 → Low → this rule bumps it to Medium.
+  if (postponedCount >= 2 && priorityLabel === "Low") {
+    priorityLabel = "Medium";
+    priorityScore = Math.max(priorityScore, 40);
   }
-  // Rule: overloaded AND deadline tomorrow → Critical
+
+  // Rule C: overloaded AND deadline tomorrow → Critical
   if (workload.overloadFlag && deadlineDays !== null && deadlineDays <= 1) {
     priorityLabel = "Critical";
     priorityScore = Math.max(priorityScore, 90);
@@ -106,6 +130,6 @@ export function calculatePriority(task, workload) {
     priorityScore,
     priorityLabel,
     priorityRationale,
-    correctedMinutes  // Expose so taskController can use the corrected value
+    correctedMinutes  // Returned so taskController can store if correction multiplier != 1.0
   };
 }

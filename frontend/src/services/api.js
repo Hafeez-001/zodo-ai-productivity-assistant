@@ -62,6 +62,10 @@ export async function patchTask(id, updates) {
   return request(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(updates) });
 }
 
+export async function getMdpAssessment() {
+  return request("/tasks/mdp-assessment");
+}
+
 export async function removeTask(id) {
   return request(`/tasks/${id}`, { method: "DELETE" });
 }

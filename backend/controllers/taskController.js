@@ -16,7 +16,7 @@ import {
   detectTemporalOverloadTrend,
   mdpActionPolicy
 } from "../intelligence/behaviorModel.js";
-import { planCleanup } from "../intelligence/decisionEngine.js";
+import { planCleanup, assessWithPolicy } from "../intelligence/decisionEngine.js";
 
 /**
  * Checks for scheduling conflicts for FIXED events.
@@ -122,8 +122,16 @@ export async function createTask(req, res, next) {
     const workload = computeDailyWorkload(currentTasks);
     const priority = calculatePriority(taskData, workload);
 
+    // FIX (Issue #3): Use correctedMinutes from priority result if the behavioral
+    // effort-correction multiplier shifted the estimate. This makes workload
+    // calculations on subsequent requests more accurate for this user.
+    const finalEstimatedMinutes = (priority.correctedMinutes > 0 && effortCorrection !== 1.0)
+      ? priority.correctedMinutes
+      : taskData.estimatedMinutes;
+
     const task = await Task.create({
       ...taskData,
+      estimatedMinutes: finalEstimatedMinutes,
       priorityScore: priority.priorityScore,
       priorityLabel: priority.priorityLabel,
       priorityRationale: priority.priorityRationale
@@ -186,18 +194,34 @@ async function updateBehaviorStateBackground(userId) {
   const pendingTaskCount = tasks.filter(t => t.status !== "completed").length;
   const ns = nextState(state.currentState, metrics, wl.overloadFlag, pendingTaskCount);
   
-  if (ns !== state.currentState) {
-    const fromState = state.currentState;
+  // FIX (Issue #6): Always record the transition in the matrix — including self-stays.
+  // Previously the matrix was only updated when state CHANGED, meaning a user staying
+  // Balanced for 100 task events recorded 0 transitions and all predictions were 20% uniform.
+  const fromState = state.currentState;
+  const fromRow = state.transitionMatrix.get(fromState);
+  if (fromRow) {
+    fromRow.set(ns, (fromRow.get(ns) || 0) + 1);
+    state.markModified("transitionMatrix");
+  }
+
+  if (ns !== fromState) {
     state.previousState = fromState;
     state.currentState = ns;
-    const fromRow = state.transitionMatrix.get(fromState);
-    if (fromRow) {
-      fromRow.set(ns, (fromRow.get(ns) || 0) + 1);
-      state.markModified("transitionMatrix");
-    }
     state.stateHistory.push({ state: ns, timestamp: new Date() });
   }
-  
+
+  // FIX (Issue #7): Append overload probability on every background update, not just
+  // on Insights page load. detectTemporalOverloadTrend() requires >= 3 data points;
+  // previous code only appended in getMarkovInsights(), starving the trend detector.
+  const currentOverloadProb = (() => {
+    // Simple inline estimate: fraction of states in last 5 history entries that are Overloaded
+    const recent = state.stateHistory.slice(-5);
+    if (recent.length === 0) return wl.overloadFlag ? 1 : 0;
+    return recent.filter(h => h.state === "Overloaded").length / recent.length;
+  })();
+  state.probabilityHistory.push({ timestamp: new Date(), overloadProbability: currentOverloadProb });
+  if (state.probabilityHistory.length > 20) state.probabilityHistory.shift(); // keep last 20
+
   state.postponementRate = metrics.postponementRate;
   state.completionRate = metrics.completionRate;
   state.overloadFrequency = Math.max(state.overloadFrequency, wl.overloadFlag ? 1 : state.overloadFrequency);
@@ -307,7 +331,12 @@ export async function getWorkload(req, res, next) {
     
     // Inject Markov state and action policy for the Workload meter
     const state = await BehaviorState.findOne({ userId });
-    const policy = state ? mdpActionPolicy(state.currentState) : null;
+
+    // Pass behavioral metrics to mdpActionPolicy for personalised message
+    const behaviorMetrics = state
+      ? { completionRate: state.completionRate || 0, postponementRate: state.postponementRate || 0 }
+      : {};
+    const policy = state ? mdpActionPolicy(state.currentState, behaviorMetrics) : null;
     
     res.json({ 
       ...metrics, 
@@ -354,6 +383,13 @@ export async function getMarkovInsights(req, res) {
     let totalTransitions = 0;
     state.transitionMatrix.forEach(row => { row.forEach(count => { totalTransitions += count; }); });
 
+    // Include MDP policy in insights response
+    const behaviorMetrics = {
+      completionRate: state.completionRate || 0,
+      postponementRate: state.postponementRate || 0
+    };
+    const policy = mdpActionPolicy(state.currentState, behaviorMetrics);
+
     res.json({
       currentState: state.currentState,
       oneStepPrediction: { prediction: oneStep.prediction, confidence: oneStep.confidence },
@@ -363,10 +399,50 @@ export async function getMarkovInsights(req, res) {
       overloadTrend: trend,
       longTermOverloadRisk,
       transitionMatrix: probabilities,
-      totalTransitions
+      totalTransitions,
+      policy
     });
   } catch (e) {
     res.status(500).json({ error: "markov_insights_failed", message: e.message });
+  }
+}
+
+/**
+ * GET /api/tasks/mdp-assessment
+ * Returns full MDP policy assessment: current state, message, and concrete task suggestions.
+ */
+export async function getMdpAssessment(req, res, next) {
+  try {
+    const userId = req.user.id;
+
+    const [state, tasks] = await Promise.all([
+      BehaviorState.findOne({ userId }),
+      Task.find({ userId, archived: { $ne: true } })
+    ]);
+
+    if (!state) {
+      return res.json({
+        state: "Balanced",
+        action: "maintain",
+        message: "Start adding tasks to let Zodo learn your patterns.",
+        tone: "positive",
+        priorityAdjustment: null,
+        suggestions: []
+      });
+    }
+
+    const activeTasks = tasks.filter(t => t.status !== "completed");
+    const workload = computeDailyWorkload(activeTasks);
+    const metrics = {
+      completionRate: state.completionRate || 0,
+      postponementRate: state.postponementRate || 0,
+      totalTasks: tasks.length
+    };
+
+    const assessment = assessWithPolicy(state.currentState, metrics, tasks, workload);
+    res.json(assessment);
+  } catch (e) {
+    next(e);
   }
 }
 

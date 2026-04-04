@@ -12,54 +12,94 @@ import { STATES } from "../models/BehaviorState.js";
  */
 
 export function computeStateMetrics(tasks) {
-  const total = tasks.length || 1;
+  // FIX (Issue #1): Use actual task count as denominator, never substitute 1 for 0.
+  // Substituting 1 produced completionRate=0 for new users, triggering Underutilized.
+  const total = tasks.length;
+  if (total === 0) return { postponementRate: 0, completionRate: 0, totalTasks: 0 };
   const postponed = tasks.filter(t => t.status === "postponed").length;
   const completed = tasks.filter(t => t.status === "completed").length;
   const postponementRate = postponed / total;
   const completionRate = completed / total;
-  return { postponementRate, completionRate };
+  return { postponementRate, completionRate, totalTasks: total };
 }
 
 export function nextState(current, metrics, overloadFlag, pendingTaskCount = 0) {
+  // FIX (Issue #1): With 0 tasks, all metrics are 0 — return Balanced immediately.
+  // Previously: completionRate=0 < 0.2 AND pendingCount=0 < 2 → wrongly → Underutilized.
+  if (metrics.totalTasks === 0) return "Balanced";
+
   if (overloadFlag) return "Overloaded";
   if (metrics.postponementRate > 0.4 && metrics.completionRate < 0.4) return "Procrastinating";
-  if (metrics.completionRate > 0.8 && metrics.completionRate <= 1.0 && pendingTaskCount > 0) return "HighPerformance";
+
+  // FIX (Issue #8): Changed > 0.8 to >= 0.8.
+  // Previously: completing exactly 80% of tasks (e.g. 8/10) fell through to Balanced.
+  if (metrics.completionRate >= 0.8 && pendingTaskCount > 0) return "HighPerformance";
+
   if (metrics.completionRate < 0.2 && pendingTaskCount < 2) return "Underutilized";
   return "Balanced";
 }
 
 /**
- * MDP Action Policy
- * Returns the recommended system action and user message for the current MDP state.
+ * MDP Action Policy (MDP-lite)
+ *
+ * Maps the current Markov state + behavioral metrics to a structured action policy.
+ * Every state returns:
+ *   action            — machine-readable action key
+ *   message           — user-facing message (personalised with metrics where available)
+ *   tone              — visual tone hint for the frontend
+ *   priorityAdjustment — optional directive consumed by the decision engine to
+ *                        modify task processing (null = no adjustment)
+ *
+ * The second argument `metrics` is optional for backward compatibility with
+ * existing callers that pass only the state string.
+ *
+ * @param {string} state - current Markov state
+ * @param {object} [metrics] - { postponementRate, completionRate, totalTasks }
+ * @returns {{ action, message, tone, priorityAdjustment }}
  */
-export function mdpActionPolicy(state) {
+export function mdpActionPolicy(state, metrics = {}) {
+  const completedPct = Math.round((metrics.completionRate || 0) * 100);
+  const postponedPct = Math.round((metrics.postponementRate || 0) * 100);
+
   const policies = {
     Underutilized: {
-      action: "suggest_tasks",
-      message: "Your schedule has plenty of room. Consider pulling forward a goal or planning new tasks.",
-      tone: "encouraging"
+      action: "suggest_add_tasks",
+      message: "You have low workload. Consider planning more tasks or pulling a goal forward.",
+      tone: "encouraging",
+      priorityAdjustment: null
     },
     Balanced: {
       action: "maintain",
-      message: "Your workload is well balanced. Maintain your current rhythm.",
-      tone: "positive"
+      message: metrics.completionRate > 0
+        ? `Your workload is balanced — ${completedPct}% done. Keep going.`
+        : "Your workload is balanced. Maintain your current rhythm.",
+      tone: "positive",
+      priorityAdjustment: null
     },
     HighPerformance: {
       action: "encourage",
-      message: "You're in a flow state! You've completed most of your tasks. Keep this momentum going.",
-      tone: "celebratory"
+      message: `You're performing well — ${completedPct}% of tasks completed. Maintain your momentum.`,
+      tone: "celebratory",
+      priorityAdjustment: null
     },
     Overloaded: {
-      action: "plan_cleanup",
-      message: "Your workload is too high. Consider postponing non-essential tasks or splitting large ones.",
-      tone: "warning"
+      action: "reduce_workload",
+      message: "You are overloaded. Consider postponing low-priority tasks or splitting large ones.",
+      tone: "warning",
+      // Signals the decision engine to boost urgency on near-deadline tasks
+      // so the user can see which ones to act on first.
+      priorityAdjustment: "increase_urgency"
     },
     Procrastinating: {
-      action: "refocus",
-      message: "Several tasks have been postponed. Break larger tasks into smaller steps and commit to one today.",
-      tone: "motivational"
+      action: "break_tasks",
+      message: postponedPct > 0
+        ? `${postponedPct}% of your tasks are postponed. Break tasks into smaller steps and commit to one today.`
+        : "You are postponing tasks frequently. Break tasks into smaller steps and commit to one today.",
+      tone: "motivational",
+      priorityAdjustment: null
     }
   };
+
   return policies[state] || policies["Balanced"];
 }
 
@@ -149,7 +189,7 @@ export function predictStateNSteps(currentState, transitionMatrix, steps = 3) {
   return { distribution, prediction: bestState, confidence: maxProb };
 }
 
-export function computeStationaryDistribution(transitionMatrix, iterations = 10) {
+export function computeStationaryDistribution(transitionMatrix, iterations = 50) {
   const P = computeTransitionProbabilities(transitionMatrix);
   let v = {};
   STATES.forEach(state => v[state] = 1 / STATES.length);

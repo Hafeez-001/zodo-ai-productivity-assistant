@@ -3,7 +3,7 @@ import { generatePlanCleanup } from "../services/geminiService.js";
 
 /**
  * ZODO Decision Engine
- * 
+ *
  * Uses 3-step Markov forecasting, behavioral entropy, stationary distribution,
  * and MDP state-action policy for proactive system recommendations.
  */
@@ -52,8 +52,12 @@ export function assess(workload, behavior) {
     suggestedAdjustments.push("Pull one medium task forward");
   }
 
-  // MDP Action Policy: state-based recommendation
-  const statePolicy = mdpActionPolicy(currentState);
+  // MDP Action Policy: pass metrics for personalised message
+  const metrics = {
+    completionRate: behavior.completionRate || 0,
+    postponementRate: behavior.postponementRate || 0
+  };
+  const statePolicy = mdpActionPolicy(currentState, metrics);
 
   return { 
     workloadAssessment, 
@@ -67,6 +71,132 @@ export function assess(workload, behavior) {
       volatility: entropy
     }
   };
+}
+
+/**
+ * assessWithPolicy — MDP-lite Assessment
+ *
+ * Extends assess() by applying the MDP action policy effects to actual tasks:
+ *
+ *  reduce_workload  → list the lowest-priority tasks to postpone
+ *                   → list high-effort tasks to split
+ *  increase_urgency → boost visibility of near-deadline tasks (≤ 2 days)
+ *  break_tasks      → list tasks with postponedCount ≥ 2 that should be split
+ *  suggest_add_tasks → no task-level suggestions (prompt user to add)
+ *  maintain/encourage → no task-level changes
+ *
+ * Returns:
+ * {
+ *   state, action, message, tone, priorityAdjustment,
+ *   suggestions: [{ taskId, taskTitle, suggestedAction, reason }]
+ * }
+ *
+ * @param {string} currentState - current Markov state
+ * @param {object} metrics     - { completionRate, postponementRate, totalTasks }
+ * @param {Array}  tasks       - all active (non-archived) Task documents
+ * @param {object} workload    - { totalMinutes, capacityPercentage, overloadFlag }
+ */
+export function assessWithPolicy(currentState, metrics, tasks, workload) {
+  const policy = mdpActionPolicy(currentState, metrics);
+  const suggestions = buildSuggestions(policy.action, tasks, workload);
+
+  return {
+    state: currentState,
+    action: policy.action,
+    message: policy.message,
+    tone: policy.tone,
+    priorityAdjustment: policy.priorityAdjustment,
+    suggestions
+  };
+}
+
+/**
+ * Translates a policy action into concrete task-level suggestions.
+ * Max 5 suggestions returned to keep the UI focused.
+ */
+function buildSuggestions(action, tasks, workload) {
+  const active = tasks.filter(t => t.status !== "completed" && !t.archived);
+  const now = new Date();
+
+  if (action === "reduce_workload") {
+    const suggestions = [];
+
+    // 1. Suggest postponing low-priority tasks (no near deadline)
+    const lowPriority = active
+      .filter(t => t.priorityLabel === "Low" || t.priorityLabel === "Medium")
+      .filter(t => {
+        if (!t.deadline) return true; // no deadline = safe to defer
+        const daysLeft = (new Date(t.deadline) - now) / (1000 * 60 * 60 * 24);
+        return daysLeft > 3; // only defer if deadline is 3+ days away
+      })
+      .sort((a, b) => (a.priorityScore || 0) - (b.priorityScore || 0))
+      .slice(0, 2);
+
+    lowPriority.forEach(t => suggestions.push({
+      taskId: t._id?.toString(),
+      taskTitle: t.title,
+      suggestedAction: "postpone",
+      reason: `Low priority task — safe to defer and reduce your current load.`
+    }));
+
+    // 2. Suggest splitting high-effort tasks
+    const highEffort = active
+      .filter(t => t.effortLevel === "high" && (t.estimatedMinutes || 30) >= 60)
+      .slice(0, 2);
+
+    highEffort.forEach(t => suggestions.push({
+      taskId: t._id?.toString(),
+      taskTitle: t.title,
+      suggestedAction: "split",
+      reason: `High-effort task (${t.estimatedMinutes || 60}min) — break into smaller deliverables.`
+    }));
+
+    return suggestions.slice(0, 5);
+  }
+
+  if (action === "break_tasks") {
+    // Suggest splitting repeatedly postponed tasks
+    return active
+      .filter(t => (t.postponedCount || 0) >= 2)
+      .sort((a, b) => (b.postponedCount || 0) - (a.postponedCount || 0))
+      .slice(0, 5)
+      .map(t => ({
+        taskId: t._id?.toString(),
+        taskTitle: t.title,
+        suggestedAction: "split",
+        reason: `Postponed ${t.postponedCount} times — break into smaller steps to reduce friction.`
+      }));
+  }
+
+  if (action === "reduce_workload" || policy?.priorityAdjustment === "increase_urgency") {
+    // Handled in reduce_workload block above; this covers the urgency flag standalone
+    return active
+      .filter(t => {
+        if (!t.deadline) return false;
+        const daysLeft = (new Date(t.deadline) - now) / (1000 * 60 * 60 * 24);
+        return daysLeft <= 2;
+      })
+      .sort((a, b) => (a.priorityScore || 0) - (b.priorityScore || 0))
+      .slice(0, 3)
+      .map(t => ({
+        taskId: t._id?.toString(),
+        taskTitle: t.title,
+        suggestedAction: "focus",
+        reason: `Due within 2 days — prioritise this immediately.`
+      }));
+  }
+
+  if (action === "suggest_add_tasks") {
+    return [{
+      taskId: null,
+      taskTitle: null,
+      suggestedAction: "add_task",
+      reason: "Your schedule has capacity. Pull a goal forward or plan a new task."
+    }];
+  }
+
+  // maintain / encourage → no task changes needed
+  return [];
 }
 
 /**
